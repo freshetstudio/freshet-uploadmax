@@ -21,6 +21,8 @@ It writes a small, marker-delimited block to the mechanism your host actually re
 
 It does **not** fake the fix by only filtering WordPress's displayed limit — that leaves the server rejecting the file with a confusing error. It raises the real PHP directive, or tells you (admin notice) when it couldn't.
 
+It also won't take your site down. On mod_php hosts, an `.htaccess` `php_value` can 500 if `AllowOverride` forbids it — so after writing, the plugin probes the site with a loopback request and, if it broke, restores the file exactly and shows a notice instead. And it verifies the limit *actually* rose (measuring the real runtime value), so a host that silently ignores the change gets flagged rather than failing mysteriously at upload time.
+
 **Default: 64MB.** Override it in `wp-config.php`:
 
 `define( 'FRESHET_UPLOADMAX_MB', 128 );`

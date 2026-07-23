@@ -20,6 +20,13 @@ This raises the **real** directive using whatever your host reads:
 
 The `.htaccess` path is only ever written when the handler is genuinely mod_php, because `php_value` directives 500 a FastCGI host. The block is marker-delimited (`# BEGIN Freshet Upload Max`), so existing file contents are preserved and cleanly removed on deactivation.
 
+## Not breaking your site
+
+Two failure modes are handled explicitly, because a "just works" plugin must never leave a site worse off:
+
+- **No persistent 500.** `.user.ini` can't cause a fatal (bad directives are logged and ignored). The only 500 vector is `.htaccess` `php_value` under a restrictive `AllowOverride` — which `IfModule` can't guard. So after writing the `.htaccess` block we run a **loopback probe** to the front page; if it returns ≥500 (or can't be confirmed), we **roll back to the exact previous file** and surface an admin notice pointing you at server config. The site stays up; worst case the limit is simply unchanged.
+- **Silent ineffectiveness.** Success is measured, not assumed: we compare the *real* runtime ceiling (`wp_max_upload_size()`) against the target. If the file wrote but the limit never rose (host ignores `.user.ini`, `user_ini.filename` disabled, hard host cap), you get a notice — after a grace window so PHP's `.user.ini` cache (`user_ini.cache_ttl`, ~5 min) isn't mistaken for a failure.
+
 ## Configuration
 
 Default is 64MB. To override, in `wp-config.php`:

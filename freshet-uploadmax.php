@@ -109,10 +109,11 @@ function freshet_uploadmax_htaccess_body( int $mb ): string {
 
 /**
  * Insert/update our managed block in $file, preserving everything else.
- * Idempotent: returns true without writing when the file already matches.
- * $comment is ';' for ini files, '#' for .htaccess.
+ * Idempotent. $comment is ';' for ini files, '#' for .htaccess.
+ *
+ * @return string 'noop' (already correct), 'written' (changed), 'failed' (write error).
  */
-function freshet_uploadmax_write_block( string $file, string $comment, string $body ): bool {
+function freshet_uploadmax_write_block( string $file, string $comment, string $body ): string {
 	$begin = "{$comment} BEGIN " . FRESHET_UPLOADMAX_MARKER;
 	$end   = "{$comment} END " . FRESHET_UPLOADMAX_MARKER;
 
@@ -126,10 +127,10 @@ function freshet_uploadmax_write_block( string $file, string $comment, string $b
 	$new   = ( '' === $other ) ? $block : "{$other}\n\n{$block}";
 
 	if ( $new === $existing ) {
-		return true; // already correct — no disk write
+		return 'noop'; // already correct — no disk write
 	}
 
-	return false !== @file_put_contents($file, $new, LOCK_EX);
+	return ( false !== @file_put_contents($file, $new, LOCK_EX) ) ? 'written' : 'failed';
 }
 
 /**
@@ -159,24 +160,114 @@ function freshet_uploadmax_remove_block( string $file, string $comment, bool $de
 }
 
 /**
+ * Write the .htaccess block, then verify the new php_value directives didn't
+ * take the site down. IfModule guards can't catch an AllowOverride that forbids
+ * php_value — that 500s every request — so we probe with a loopback GET and roll
+ * back to the exact previous contents if the site stops responding.
+ *
+ * @return string 'noop' | 'written' | 'failed' | 'unsafe'
+ */
+function freshet_uploadmax_apply_htaccess( int $mb ): string {
+	$file   = ABSPATH . '.htaccess';
+	$before = is_readable($file) ? (string) file_get_contents($file) : null;
+
+	$result = freshet_uploadmax_write_block($file, '#', freshet_uploadmax_htaccess_body($mb));
+	if ( 'written' !== $result ) {
+		return $result; // 'noop' (already verified) or 'failed'
+	}
+
+	if ( freshet_uploadmax_site_responds() ) {
+		return 'written';
+	}
+
+	// The directives broke Apache (or we couldn't confirm they didn't). Restore
+	// and give up on .htaccess — better an unchanged limit than a dead site.
+	if ( null === $before ) {
+		freshet_uploadmax_remove_block($file, '#', true);
+	} else {
+		@file_put_contents($file, $before, LOCK_EX);
+	}
+	return 'unsafe';
+}
+
+/**
+ * Loopback probe: does the front page still return < 500? A WP_Error (loopback
+ * blocked, timeout) is treated as "not safe" — for .htaccess we stay
+ * conservative, since the failure mode we're guarding against is a total outage.
+ */
+function freshet_uploadmax_site_responds(): bool {
+	$resp = wp_remote_get( home_url('/'), [
+		'timeout'     => 5,
+		'redirection' => 0,
+		'sslverify'   => false, // loopback may hit a self-signed/local cert
+	] );
+
+	if ( is_wp_error($resp) ) {
+		return false;
+	}
+	return (int) wp_remote_retrieve_response_code($resp) < 500;
+}
+
+/**
+ * Record whether the limit *actually* rose, not just whether a file was written.
+ * Measures the real runtime ceiling (min of upload_max_filesize / post_max_size),
+ * with a grace window for PHP's .user.ini cache (user_ini.cache_ttl, ~300s) so we
+ * don't false-alarm in the minutes right after applying.
+ */
+function freshet_uploadmax_evaluate( int $target ): void {
+	$effective = (int) floor( wp_max_upload_size() / MB_IN_BYTES );
+
+	if ( $effective >= $target ) {
+		update_option('freshet_uploadmax_status', 'ok', false);
+		return;
+	}
+
+	$applied = get_option('freshet_uploadmax_applied');
+	$age     = is_array($applied) ? ( time() - (int) ( $applied['time'] ?? 0 ) ) : 0;
+
+	// Past the cache window and still low → the host is ignoring us or caps lower.
+	update_option('freshet_uploadmax_status', $age > 360 ? 'not_effective' : 'pending', false);
+}
+
+/**
  * Apply the limit via the mechanism this host supports. Idempotent; safe to
  * call on every admin load (self-heal) as well as on activation.
  */
 function freshet_uploadmax_apply(): void {
+	$mechanism = freshet_uploadmax_mechanism();
+
+	if ( 'unsupported' === $mechanism ) {
+		update_option('freshet_uploadmax_status', 'unsupported', false);
+		return;
+	}
+
+	// Once .htaccess has proven to break this host, stop retrying (each retry is
+	// a loopback request). Deactivating clears the status, so reactivation retries.
+	if ( 'htaccess_unsafe' === get_option('freshet_uploadmax_status') ) {
+		return;
+	}
+
 	$mb = freshet_uploadmax_limit_mb();
 
-	switch ( freshet_uploadmax_mechanism() ) {
-		case 'userini':
-			$ok = freshet_uploadmax_write_block(ABSPATH . '.user.ini', ';', freshet_uploadmax_userini_body($mb));
-			update_option('freshet_uploadmax_status', $ok ? 'ok' : 'write_failed', false);
-			break;
-		case 'htaccess':
-			$ok = freshet_uploadmax_write_block(ABSPATH . '.htaccess', '#', freshet_uploadmax_htaccess_body($mb));
-			update_option('freshet_uploadmax_status', $ok ? 'ok' : 'write_failed', false);
-			break;
-		default:
-			update_option('freshet_uploadmax_status', 'unsupported', false);
+	if ( 'userini' === $mechanism ) {
+		$result = freshet_uploadmax_write_block(ABSPATH . '.user.ini', ';', freshet_uploadmax_userini_body($mb));
+	} else {
+		$result = freshet_uploadmax_apply_htaccess($mb);
 	}
+
+	if ( 'failed' === $result ) {
+		update_option('freshet_uploadmax_status', 'write_failed', false);
+		return;
+	}
+	if ( 'unsafe' === $result ) {
+		update_option('freshet_uploadmax_status', 'htaccess_unsafe', false);
+		return;
+	}
+	if ( 'written' === $result ) {
+		update_option('freshet_uploadmax_applied', ['mb' => $mb, 'time' => time()], false);
+	}
+
+	freshet_uploadmax_evaluate($mb);
 }
 
 // Write on activation so it takes effect straight away…
@@ -192,6 +283,7 @@ register_deactivation_hook(__FILE__, function () {
 	freshet_uploadmax_remove_block(ABSPATH . '.user.ini', ';', true);   // ours to delete
 	freshet_uploadmax_remove_block(ABSPATH . '.htaccess', '#', false);  // WP owns this file
 	delete_option('freshet_uploadmax_status');
+	delete_option('freshet_uploadmax_applied');
 });
 
 // Tell an admin when we couldn't actually raise the limit — the whole point is
@@ -201,19 +293,29 @@ add_action('admin_notices', function () {
 		return;
 	}
 
+	// Silent on success ('ok'), while a fresh .user.ini cache warms ('pending'),
+	// and before we've run ('false'). Notices are the genuine failure cases only.
 	$status = get_option('freshet_uploadmax_status');
-	if ( 'ok' === $status || false === $status ) {
-		return;
-	}
 
-	if ( 'write_failed' === $status ) {
-		$msg = sprintf(
-			/* translators: %s: absolute path to the WordPress root. */
-			esc_html__('Freshet Upload Max couldn\'t write to %s. Make the WordPress root writable, or set the upload limit in your server config.', 'freshet-uploadmax'),
-			'<code>' . esc_html(ABSPATH) . '</code>'
-		);
-	} else { // unsupported
-		$msg = esc_html__('Freshet Upload Max couldn\'t detect a supported PHP handler (FastCGI/FPM or mod_php) on this host, so it left the upload limit unchanged. Raise it in your server config instead.', 'freshet-uploadmax');
+	switch ( $status ) {
+		case 'write_failed':
+			$msg = sprintf(
+				/* translators: %s: absolute path to the WordPress root. */
+				esc_html__('Freshet Upload Max couldn\'t write to %s. Make the WordPress root writable, or set the upload limit in your server config.', 'freshet-uploadmax'),
+				'<code>' . esc_html(ABSPATH) . '</code>'
+			);
+			break;
+		case 'unsupported':
+			$msg = esc_html__('Freshet Upload Max couldn\'t detect a supported PHP handler (FastCGI/FPM or mod_php) on this host, so it left the upload limit unchanged. Raise it in your server config instead.', 'freshet-uploadmax');
+			break;
+		case 'htaccess_unsafe':
+			$msg = esc_html__('Freshet Upload Max\'s .htaccess directives were rejected by your server (usually a restrictive AllowOverride), so the change was rolled back to keep the site online. Raise the upload limit in your server config instead.', 'freshet-uploadmax');
+			break;
+		case 'not_effective':
+			$msg = esc_html__('Freshet Upload Max wrote the config, but the upload limit hasn\'t increased — your host may ignore .user.ini or enforce a lower hard cap. Raise it in your server config instead.', 'freshet-uploadmax');
+			break;
+		default: // ok, pending, false
+			return;
 	}
 
 	echo '<div class="notice notice-warning"><p>' . wp_kses($msg, ['code' => []]) . '</p></div>';
