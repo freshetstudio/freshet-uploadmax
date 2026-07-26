@@ -63,6 +63,18 @@ memory_limit = 256M
 - Deactivating removes the block and restores the previous limit. The `.user.ini` is deleted if it becomes empty; `.htaccess` (owned by WordPress) is only stripped.
 - Scope is deliberately size-only. Time limits (`max_input_time`, `max_execution_time`) for very large/slow uploads stay a server-config concern.
 
+## Development
+
+No build step — plain PHP. After cloning, arm the content guard once
+(`core.hooksPath` lives in `.git/config` and so is never cloned):
+
+```bash
+bash .freshet/install-hooks.sh
+```
+
+The same check runs in CI on every push, where it cannot be skipped. See
+`.freshet/README.md`.
+
 ## License
 
 MIT — see `LICENSE`.

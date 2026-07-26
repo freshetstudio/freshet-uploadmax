@@ -1,0 +1,24 @@
+name: content guard
+
+# The backstop the local pre-commit hook cannot be: this runs on the remote, on
+# every push and pull request, and `--no-verify` has no effect on it.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # --history needs every ref, not just the tip
+
+      - name: Scan the work tree
+        run: bash .freshet/content-guard.sh --tree
+
+      - name: Scan the commit history
+        run: bash .freshet/content-guard.sh --history
