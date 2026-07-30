@@ -24,8 +24,8 @@ The `.htaccess` path is only ever written when the handler is genuinely mod_php,
 
 Two failure modes are handled explicitly, because a "just works" plugin must never leave a site worse off:
 
-- **No persistent 500.** `.user.ini` can't cause a fatal (bad directives are logged and ignored). The only 500 vector is `.htaccess` `php_value` under a restrictive `AllowOverride` — which `IfModule` can't guard. So after writing the `.htaccess` block we run a **loopback probe** to the front page; if it returns ≥500 (or can't be confirmed), we **roll back to the exact previous file** and surface an admin notice pointing you at server config. The site stays up; worst case the limit is simply unchanged.
-- **Silent ineffectiveness.** Success is measured, not assumed: we compare the *real* runtime ceiling (`wp_max_upload_size()`) against the target. If the file wrote but the limit never rose (host ignores `.user.ini`, `user_ini.filename` disabled, hard host cap), you get a notice — after a grace window so PHP's `.user.ini` cache (`user_ini.cache_ttl`, ~5 min) isn't mistaken for a failure.
+- **No persistent 500.** `.user.ini` can't cause a fatal (bad directives are logged and ignored). The only 500 vector is `.htaccess` `php_value` under a restrictive `AllowOverride` — which `IfModule` can't guard. So before touching the live file we **pre-flight the same directives in a throwaway subdirectory**: a server that rejects them 500s the probe, not the site, and the live `.htaccess` is never written. Only when the pre-flight can't prove it unsafe do we write — and then still run a **loopback probe** (against the WordPress directory URL, which is the directory the block governs); if it returns ≥500 (or can't be confirmed), we **roll back to the exact previous file** and surface an admin notice pointing you at server config. The site stays up; worst case the limit is simply unchanged.
+- **Silent ineffectiveness.** Success is measured, not assumed: we read the *real* directives back (`ini_get`, immune to other plugins filtering WordPress's displayed limit) and compare against the target. If the file wrote but the limit never rose (host ignores `.user.ini`, hard host cap), you get a notice — after a grace window tracking PHP's `.user.ini` cache (`user_ini.cache_ttl`, ~5 min stock) so the cache isn't mistaken for a failure. A renamed `user_ini.filename` is honoured; a disabled (empty) one reports as unsupported instead of pretending.
 
 ## Configuration
 
@@ -62,6 +62,8 @@ memory_limit = 256M
 - `.user.ini` is cached by PHP for up to 5 minutes (`user_ini.cache_ttl`) — the new limit may lag activation by a few minutes.
 - Deactivating removes the block and restores the previous limit. The `.user.ini` is deleted if it becomes empty; `.htaccess` (owned by WordPress) is only stripped.
 - Scope is deliberately size-only. Time limits (`max_input_time`, `max_execution_time`) for very large/slow uploads stay a server-config concern.
+- PHP is not the whole chain: caps in front of it (nginx `client_max_body_size`, proxy/CDN body limits) are out of a plugin's reach and undetectable from inside PHP — disclosed in the readme FAQ rather than papered over.
+- Multisite: the written limit is one shared, network-wide file, so writes (and deactivation cleanup) require a network administrator. A per-site activation by a site admin shows a notice and changes nothing.
 
 ## Development
 
