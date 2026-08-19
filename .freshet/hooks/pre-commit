@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-#
-# Pre-commit shim. All logic and patterns live in .freshet/content-guard.sh, so
-# this hook and the CI workflow share one source and cannot drift.
-#
-# A fresh clone arms this with:  bash .freshet/install-hooks.sh
-exec bash "$(git rev-parse --show-toplevel)/.freshet/content-guard.sh" --staged
