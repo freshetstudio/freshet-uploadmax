@@ -2,7 +2,7 @@
 Contributors: kristoffbertram
 Tags: upload, max upload size, file size, media, uploads
 Requires at least: 6.0
-Tested up to: 7.0
+Tested up to: 7.1
 Requires PHP: 7.4
 Stable tag: 1.0.0
 License: MIT
@@ -32,6 +32,8 @@ It also won't take your site down. On mod_php hosts, an `.htaccess` `php_value` 
 `FRESHET_UPLOADMAX_MB=128`
 
 Deactivating the plugin removes its block and restores the previous limit.
+
+Part of the Freshet plugin suite. Full documentation: [freshet.studio/docs](https://freshet.studio/docs).
 
 == Installation ==
 

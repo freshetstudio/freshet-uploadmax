@@ -1,10 +1,11 @@
 # Freshet Upload Max
 
-_1.0.0_
+Raises the WordPress upload size limit **without editing server config**. Default **64MB**, overridable via a `wp-config.php` constant or an env var.
 
-By [Freshet Studio](https://freshet.studio).
+Part of the Freshet plugin suite. MIT.
 
-Raise the WordPress upload size limit **without editing server config**. Plug in, activate, forget. Default **64MB**, overridable via a `wp-config.php` constant or an env var.
+No dashboard, no settings screen and no visual indicator — install it and the
+limit is raised, or you get an admin notice saying exactly why it could not be.
 
 ## Why this exists
 
@@ -65,14 +66,18 @@ memory_limit = 256M
 - PHP is not the whole chain: caps in front of it (nginx `client_max_body_size`, proxy/CDN body limits) are out of a plugin's reach and undetectable from inside PHP — disclosed in the readme FAQ rather than papered over.
 - Multisite: the written limit is one shared, network-wide file, so writes (and deactivation cleanup) require a network administrator. A per-site activation by a site admin shows a notice and changes nothing.
 
-## Development
+## Dev environment
 
-No build step — plain PHP.
+Symlink or copy the plugin into a local WordPress install and activate it:
+
+```bash
+ln -s "$(pwd)" /path/to/wp/wp-content/plugins/freshet-uploadmax
+```
+
+No build step — plain PHP (7.4+), one file.
+
+Lint: `php -l freshet-uploadmax.php`.
 
 ## License
 
-MIT — see `LICENSE`.
-
-## Disclaimer
-
-Built out of personal necessity for the many sites where touching server config is a chore. No dashboard, no settings, no visual indicator — intentional.
+MIT. Part of the [Freshet Studio](https://freshet.studio) plugin suite.

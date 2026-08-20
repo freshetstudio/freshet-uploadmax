@@ -11,6 +11,7 @@
  * License:           MIT
  * License URI:       https://opensource.org/licenses/MIT
  * Text Domain:       freshet-uploadmax
+ * Domain Path:       /languages
  */
 
 defined('ABSPATH') || exit;
@@ -21,6 +22,14 @@ define('FRESHET_UPLOADMAX_VERSION', '1.0.0');
 
 // Marker used to delimit our managed block in .user.ini / .htaccess.
 define('FRESHET_UPLOADMAX_MARKER', 'Freshet Upload Max');
+
+// Translations shipped inside the plugin's own /languages need this call —
+// without a custom path the textdomain registry only looks in WP_LANG_DIR, so
+// wp.org-delivered translations load either way but a bundled .mo never would.
+// On init: nothing here translates earlier.
+add_action('init', function () {
+	load_plugin_textdomain('freshet-uploadmax', false, dirname(plugin_basename(__FILE__)) . '/languages');
+});
 
 /**
  * Resolve the target upload limit in whole megabytes.

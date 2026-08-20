@@ -7,3 +7,6 @@ CLAUDE.md
 # Release build output
 /dist/
 /.wporg-svn/
+
+# Compiled translations (the .pot is tracked, the .mo is built)
+/languages/*.mo
