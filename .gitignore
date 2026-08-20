@@ -3,3 +3,7 @@
 .idea/
 CLAUDE.md
 .vscode/
+
+# Release build output
+/dist/
+/.wporg-svn/
