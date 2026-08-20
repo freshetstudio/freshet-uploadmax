@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="772" height="250" viewBox="0 0 772 250" role="img" aria-label="Freshet Upload Max">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7A3405"/>
+      <stop offset="1" stop-color="#F2900F"/>
+    </linearGradient>
+  </defs>
+  <rect width="772" height="250" fill="url(#bg)"/>
+  <g transform="translate(56,73) scale(4.4)" fill="none" stroke="#ffffff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <path d="M17 8l-5-5-5 5"/>
+    <path d="M12 3v12"/>
+  </g>
+  <text x="196" y="128" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="56" font-weight="800" fill="#ffffff" letter-spacing="-1">Freshet Upload Max</text>
+  <text x="198" y="168" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="23" font-weight="500" fill="#E0B489">Raise the upload limit</text>
+  <text x="198" y="198" font-family="-apple-system, 'Helvetica Neue', Arial, sans-serif" font-size="19" font-weight="500" fill="#F5DDC4" letter-spacing="0.5">64MB default &#183; Zero settings</text>
+</svg>
