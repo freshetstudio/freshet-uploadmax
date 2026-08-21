@@ -4,7 +4,7 @@ Tags: upload, max upload size, file size, media, uploads
 Requires at least: 6.0
 Tested up to: 7.1
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.1
 License: MIT
 License URI: https://opensource.org/licenses/MIT
 
@@ -66,6 +66,10 @@ Yes for the Media library and everything in wp-admin, which is where WordPress u
 No. It only touches size (`upload_max_filesize`, `post_max_size`) plus a `memory_limit` floor for image processing (a floor only — a host already running higher keeps its higher value). Very large files on slow connections may also need `max_input_time` / `max_execution_time` raised in server config.
 
 == Changelog ==
+
+= 1.0.1 =
+* File writes now go through the WordPress filesystem API where the host allows it, falling back to a direct write otherwise — never asking for FTP credentials to raise an upload limit.
+* No behaviour change: the managed block, the locked read-modify-write and the .htaccess rollback are unchanged.
 
 = 1.0.0 =
 * Initial release.

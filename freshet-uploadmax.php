@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Freshet Upload Max
  * Description:       Raises the WordPress upload size limit (default 64MB) without editing server config, by writing a managed .user.ini or .htaccess block. Overridable via a wp-config constant or env var.
- * Version:           1.0.0
+ * Version:           1.0.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Freshet Studio
@@ -17,7 +17,7 @@ defined('ABSPATH') || exit;
 
 // Single version source; keep in sync with the header + readme stable tag
 // (portfolio convention, same as freshet-editjump / freshet-feeds).
-define('FRESHET_UPLOADMAX_VERSION', '1.0.0');
+define('FRESHET_UPLOADMAX_VERSION', '1.0.1');
 
 // Marker used to delimit our managed block in .user.ini / .htaccess.
 define('FRESHET_UPLOADMAX_MARKER', 'Freshet Upload Max');
@@ -147,6 +147,60 @@ function freshet_uploadmax_htaccess_body( int $mb ): string {
 }
 
 /**
+ * The initialised WP_Filesystem, or null when it will not come up.
+ *
+ * wp.org asks plugins to write through WP_Filesystem, and where it works we
+ * use it. But it is only *direct* when WordPress says it is: on a host that
+ * resolves to the FTP or SSH2 transport, WP_Filesystem() returns false without
+ * stored credentials, and the usual remedy — request_filesystem_credentials() —
+ * would put an FTP login in front of a plugin whose entire job is raising an
+ * upload limit. So we never prompt. No credentials, no WP_Filesystem, and the
+ * caller falls back to the direct PHP call, which is what a read-only root
+ * already reports cleanly through the writability check.
+ *
+ * Called with no arguments, WP_Filesystem() never prompts on its own: it picks
+ * a method, constructs the transport and returns false if connect() fails.
+ *
+ * @return WP_Filesystem_Base|null
+ */
+function freshet_uploadmax_fs() {
+	global $wp_filesystem;
+
+	static $ready = null;
+
+	if ( null === $ready ) {
+		if ( ! function_exists('WP_Filesystem') ) {
+			$include = ABSPATH . 'wp-admin/includes/file.php';
+			if ( ! is_readable($include) ) {
+				return null; // not cached — a later request may be an admin one
+			}
+			require_once $include;
+		}
+
+		$ready = (bool) WP_Filesystem();
+	}
+
+	return ( $ready && $wp_filesystem instanceof WP_Filesystem_Base ) ? $wp_filesystem : null;
+}
+
+/**
+ * Writability of $path through WP_Filesystem where it is available, and
+ * through the direct call where it is not (see freshet_uploadmax_fs()). Every
+ * writability pre-check in this file goes through here, so the file carries
+ * exactly one direct is_writable().
+ */
+function freshet_uploadmax_is_writable( string $path ): bool {
+	$fs = freshet_uploadmax_fs();
+
+	if ( $fs ) {
+		return (bool) $fs->is_writable($path);
+	}
+
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- WP_Filesystem would not initialise here (see freshet_uploadmax_fs()); this is its documented direct fallback, and pre-checking is what keeps a read-only root warning-free.
+	return is_writable($path);
+}
+
+/**
  * Write $contents to $file, reporting a failure instead of suppressing it.
  *
  * Deliberately no '@': a plugin whose entire job is writing a config file must
@@ -154,25 +208,43 @@ function freshet_uploadmax_htaccess_body( int $mb ): string {
  * a read-only WordPress root — is caught by the writability check, so the
  * common case returns false without a warning, and neither path can fatal.
  *
+ * This one carries no locking contract — the callers are the throwaway
+ * preflight probe and the .htaccess rollback restore, both whole-file writes —
+ * so it goes through WP_Filesystem, and only falls back to the direct write
+ * when that will not initialise.
+ *
  * @return bool True when the file now holds $contents.
  */
 function freshet_uploadmax_put( string $file, string $contents ): bool {
-	if ( ! is_writable( file_exists($file) ? $file : dirname($file) ) ) {
+	if ( ! freshet_uploadmax_is_writable( file_exists($file) ? $file : dirname($file) ) ) {
 		return false;
 	}
 
+	$fs = freshet_uploadmax_fs();
+	if ( $fs ) {
+		return (bool) $fs->put_contents($file, $contents);
+	}
+
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- WP_Filesystem would not initialise here (see freshet_uploadmax_fs()); direct fallback, LOCK_EX so a concurrent reader never sees a half-written file.
 	return false !== file_put_contents($file, $contents, LOCK_EX);
 }
 
 /**
  * Delete $file, reporting a failure instead of suppressing it. Same reasoning
- * as freshet_uploadmax_put(): unlink() needs the *directory* writable.
+ * as freshet_uploadmax_put(): deleting needs the *directory* writable, and the
+ * deletion itself goes through WP_Filesystem wherever that will initialise.
  */
 function freshet_uploadmax_unlink( string $file ): bool {
-	if ( ! is_writable( dirname($file) ) ) {
+	if ( ! freshet_uploadmax_is_writable( dirname($file) ) ) {
 		return false;
 	}
 
+	$fs = freshet_uploadmax_fs();
+	if ( $fs ) {
+		return (bool) $fs->delete($file, false, 'f');
+	}
+
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- WP_Filesystem would not initialise here (see freshet_uploadmax_fs()); wp_delete_file() returns void, so it cannot report the failure this function exists to report.
 	return unlink($file);
 }
 
@@ -188,6 +260,7 @@ function freshet_uploadmax_read( string $file ): ?string {
 		return null;
 	}
 
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- LOCK_SH needs a real handle. WP_Filesystem has no locking primitive, so get_contents() here would be the unlocked, torn read this function exists to prevent.
 	$fh = fopen($file, 'r');
 	if ( ! $fh ) {
 		return null;
@@ -196,6 +269,7 @@ function freshet_uploadmax_read( string $file ): ?string {
 	flock($fh, LOCK_SH);
 	$contents = stream_get_contents($fh);
 	flock($fh, LOCK_UN);
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- closes the shared-locked handle opened above.
 	fclose($fh);
 
 	return false === $contents ? null : $contents;
@@ -258,6 +332,13 @@ function freshet_uploadmax_compose( string $existing, string $comment, string $b
  * to race an unlocked read against a truncating write, and the loser could
  * write the user's rules back from a torn read.
  *
+ * That is why the handle calls below stay direct and carry a per-line
+ * phpcs:ignore instead of moving to WP_Filesystem: it has no locking
+ * primitive, so get_contents()/put_contents() here would be two unlocked
+ * operations with the race back in between them. The paths that carry no
+ * locking contract — freshet_uploadmax_put(), freshet_uploadmax_unlink(), the
+ * writability pre-checks — do go through it.
+ *
  * @return string 'noop' (already correct), 'written' (changed), 'failed' (write error).
  */
 function freshet_uploadmax_write_block( string $file, string $comment, string $body ): string {
@@ -265,7 +346,7 @@ function freshet_uploadmax_write_block( string $file, string $comment, string $b
 
 	// Read-only target: never opened for writing (that's a PHP warning), but a
 	// block already matching on disk is still a verified 'noop'.
-	if ( ! is_writable( $exists ? $file : dirname($file) ) ) {
+	if ( ! freshet_uploadmax_is_writable( $exists ? $file : dirname($file) ) ) {
 		$existing = $exists ? freshet_uploadmax_read($file) : '';
 		if ( null === $existing ) {
 			return 'failed';
@@ -275,11 +356,13 @@ function freshet_uploadmax_write_block( string $file, string $comment, string $b
 		return ( null !== $new && $new === $existing ) ? 'noop' : 'failed';
 	}
 
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- one handle serves the whole LOCK_EX critical section below (read, truncate, write). WP_Filesystem has no locking primitive to port this to.
 	$fh = fopen($file, 'c+');
 	if ( ! $fh ) {
 		return 'failed';
 	}
 	if ( ! flock($fh, LOCK_EX) ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'failed';
 	}
@@ -289,20 +372,24 @@ function freshet_uploadmax_write_block( string $file, string $comment, string $b
 
 	if ( null === $new ) { // failed read or PCRE failure — write nothing derived from it
 		flock($fh, LOCK_UN);
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'failed';
 	}
 
 	if ( $new === $existing ) {
 		flock($fh, LOCK_UN);
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'noop';
 	}
 
 	rewind($fh);
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- writes inside the LOCK_EX critical section; put_contents() would reopen the file and drop the lock between the read and the write.
 	$ok = ftruncate($fh, 0) && strlen($new) === fwrite($fh, $new);
 	fflush($fh);
 	flock($fh, LOCK_UN);
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 	fclose($fh);
 
 	return $ok ? 'written' : 'failed';
@@ -311,7 +398,8 @@ function freshet_uploadmax_write_block( string $file, string $comment, string $b
 /**
  * Remove our managed block from $file. Deletes the file when it created it and
  * nothing else remains (only for files we own, i.e. $delete_if_empty). Same
- * locked read-modify-write as freshet_uploadmax_write_block(), and a failed
+ * locked read-modify-write as freshet_uploadmax_write_block() — including why
+ * its handle calls stay direct — and a failed
  * read or strip is 'failed' — the old path coerced a failed read to '' and
  * could then delete or truncate a file it never actually inspected.
  *
@@ -340,15 +428,17 @@ function freshet_uploadmax_remove_block( string $file, string $comment, bool $de
 		return 'noop';
 	}
 
-	if ( ! is_writable($file) ) {
+	if ( ! freshet_uploadmax_is_writable($file) ) {
 		return 'failed';
 	}
 
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen -- one handle serves the whole LOCK_EX critical section below (read, truncate, write). WP_Filesystem has no locking primitive to port this to.
 	$fh = fopen($file, 'r+');
 	if ( ! $fh ) {
 		return 'failed';
 	}
 	if ( ! flock($fh, LOCK_EX) ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'failed';
 	}
@@ -359,12 +449,14 @@ function freshet_uploadmax_remove_block( string $file, string $comment, bool $de
 
 	if ( null === $cleaned ) {
 		flock($fh, LOCK_UN);
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'failed';
 	}
 
 	if ( $cleaned === rtrim($existing) ) {
 		flock($fh, LOCK_UN);
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 		fclose($fh);
 		return 'noop';
 	}
@@ -372,9 +464,11 @@ function freshet_uploadmax_remove_block( string $file, string $comment, bool $de
 	$new = ( '' === $cleaned ) ? '' : $cleaned . "\n";
 
 	rewind($fh);
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- writes inside the LOCK_EX critical section; put_contents() would reopen the file and drop the lock between the read and the write.
 	$ok = ftruncate($fh, 0) && strlen($new) === fwrite($fh, $new);
 	fflush($fh);
 	flock($fh, LOCK_UN);
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose -- releases the critical-section handle opened above.
 	fclose($fh);
 
 	return $ok ? 'removed' : 'failed';
@@ -452,7 +546,14 @@ function freshet_uploadmax_htaccess_preflight( int $mb ): string {
 		}
 	}
 	if ( $gone && is_dir($dir) && 2 === count( (array) scandir($dir) ) ) {
-		rmdir($dir);
+		$fs = freshet_uploadmax_fs();
+
+		if ( $fs ) {
+			$fs->rmdir($dir);
+		} else {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- WP_Filesystem would not initialise here (see freshet_uploadmax_fs()); direct fallback removing our own throwaway probe directory.
+			rmdir($dir);
+		}
 	}
 
 	return $verdict;
