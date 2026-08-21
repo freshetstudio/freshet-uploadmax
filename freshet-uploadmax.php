@@ -1,7 +1,6 @@
 <?php
 /**
  * Plugin Name:       Freshet Upload Max
- * Plugin URI:        https://freshet.studio
  * Description:       Raises the WordPress upload size limit (default 64MB) without editing server config, by writing a managed .user.ini or .htaccess block. Overridable via a wp-config constant or env var.
  * Version:           1.0.0
  * Requires at least: 6.0
