@@ -9,7 +9,7 @@
  * Author URI:        https://freshet.studio
  * License:           MIT
  * License URI:       https://opensource.org/licenses/MIT
- * Text Domain:       freshet-uploadmax
+ * Text Domain:       freshet-upload-max
  * Domain Path:       /languages
  */
 
@@ -27,7 +27,7 @@ define('FRESHET_UPLOADMAX_MARKER', 'Freshet Upload Max');
 // wp.org-delivered translations load either way but a bundled .mo never would.
 // On init: nothing here translates earlier.
 add_action('init', function () {
-	load_plugin_textdomain('freshet-uploadmax', false, dirname(plugin_basename(__FILE__)) . '/languages');
+	load_plugin_textdomain('freshet-upload-max', false, dirname(plugin_basename(__FILE__)) . '/languages');
 });
 
 /**
@@ -827,7 +827,7 @@ add_action('admin_notices', function () {
 	if ( is_array($leftover) && $leftover ) {
 		$notice = sprintf(
 			/* translators: %s: absolute path(s) to the file(s) still holding the block. */
-			esc_html__('Freshet Upload Max couldn\'t remove its managed block from %s. Delete the block between the BEGIN/END Freshet Upload Max markers by hand, or the raised limit stays in place.', 'freshet-uploadmax'),
+			esc_html__('Freshet Upload Max couldn\'t remove its managed block from %s. Delete the block between the BEGIN/END Freshet Upload Max markers by hand, or the raised limit stays in place.', 'freshet-upload-max'),
 			'<code>' . esc_html( implode(', ', $leftover) ) . '</code>'
 		);
 		echo '<div class="notice notice-warning"><p>' . wp_kses($notice, ['code' => []]) . '</p></div>';
@@ -841,28 +841,28 @@ add_action('admin_notices', function () {
 		case 'write_failed':
 			$msg = sprintf(
 				/* translators: %s: absolute path to the WordPress root. */
-				esc_html__('Freshet Upload Max couldn\'t write to %s. Make the WordPress root writable, or set the upload limit in your server config.', 'freshet-uploadmax'),
+				esc_html__('Freshet Upload Max couldn\'t write to %s. Make the WordPress root writable, or set the upload limit in your server config.', 'freshet-upload-max'),
 				'<code>' . esc_html(ABSPATH) . '</code>'
 			);
 			break;
 		case 'unsupported':
-			$msg = esc_html__('Freshet Upload Max couldn\'t find a supported way to raise the limit on this host (FastCGI/FPM with .user.ini enabled, or mod_php), so it left the upload limit unchanged. Raise it in your server config instead.', 'freshet-uploadmax');
+			$msg = esc_html__('Freshet Upload Max couldn\'t find a supported way to raise the limit on this host (FastCGI/FPM with .user.ini enabled, or mod_php), so it left the upload limit unchanged. Raise it in your server config instead.', 'freshet-upload-max');
 			break;
 		case 'htaccess_unsafe':
-			$msg = esc_html__('Freshet Upload Max\'s .htaccess directives are rejected by your server (usually a restrictive AllowOverride), so the change was not applied — your site stays online. Raise the upload limit in your server config instead.', 'freshet-uploadmax');
+			$msg = esc_html__('Freshet Upload Max\'s .htaccess directives are rejected by your server (usually a restrictive AllowOverride), so the change was not applied — your site stays online. Raise the upload limit in your server config instead.', 'freshet-upload-max');
 			break;
 		case 'multisite':
-			$msg = esc_html__('Freshet Upload Max writes one shared, network-wide upload limit on multisite, so it needs a network administrator. Ask a network admin to activate it network-wide, or raise the limit in your server config.', 'freshet-uploadmax');
+			$msg = esc_html__('Freshet Upload Max writes one shared, network-wide upload limit on multisite, so it needs a network administrator. Ask a network admin to activate it network-wide, or raise the limit in your server config.', 'freshet-upload-max');
 			break;
 		case 'rollback_failed':
 			$msg = sprintf(
 				/* translators: %s: absolute path to the .htaccess file. */
-				esc_html__('Freshet Upload Max\'s .htaccess directives were rejected by your server and the previous %s could not be restored. Remove the block between the BEGIN/END Freshet Upload Max markers by hand — the site may be returning errors until you do.', 'freshet-uploadmax'),
+				esc_html__('Freshet Upload Max\'s .htaccess directives were rejected by your server and the previous %s could not be restored. Remove the block between the BEGIN/END Freshet Upload Max markers by hand — the site may be returning errors until you do.', 'freshet-upload-max'),
 				'<code>' . esc_html(ABSPATH . '.htaccess') . '</code>'
 			);
 			break;
 		case 'not_effective':
-			$msg = esc_html__('Freshet Upload Max wrote the config, but the upload limit hasn\'t increased — your host may ignore .user.ini or enforce a lower hard cap. Raise it in your server config instead.', 'freshet-uploadmax');
+			$msg = esc_html__('Freshet Upload Max wrote the config, but the upload limit hasn\'t increased — your host may ignore .user.ini or enforce a lower hard cap. Raise it in your server config instead.', 'freshet-upload-max');
 			break;
 		default: // ok, pending, false
 			return;
