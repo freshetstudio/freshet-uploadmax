@@ -93,6 +93,10 @@ echo "▶ Syncing build → trunk/"
 rsync -a --delete --exclude='.svn' "$STAGE/${SLUG}/" "$SVN_DIR/trunk/"
 
 # 4. Sync wp.org page assets (only the filenames wp.org recognises).
+#    The sync is flat, so the Playground blueprint needs its directory included
+#    in its own right — a bare filename pattern would be swallowed by the
+#    closing --exclude, and the listing would keep saying the blueprint is
+#    missing. wp.org reads it from assets/blueprints/blueprint.json.
 if [ -d "$ASSETS_SRC" ]; then
   echo "▶ Syncing assets → assets/"
   rsync -a \
@@ -102,6 +106,8 @@ if [ -d "$ASSETS_SRC" ]; then
     --include='banner-*.jpg' \
     --include='screenshot-*.png' \
     --include='screenshot-*.jpg' \
+    --include='blueprints/' \
+    --include='blueprints/blueprint.json' \
     --exclude='*' \
     "$ASSETS_SRC/" "$SVN_DIR/assets/"
 else
